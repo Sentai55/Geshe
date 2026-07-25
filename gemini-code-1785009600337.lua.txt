@@ -1,0 +1,140 @@
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+-- Memastikan PlayerGui sudah siap
+local playerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+-- Hapus GUI lama jika script dijalankan ulang
+if playerGui:FindFirstChild("AutoFarmGuiMobile") then
+    playerGui.AutoFarmGuiMobile:Destroy()
+end
+
+local EnemyFolder = workspace:WaitForChild("EnemyNpc")
+
+-- Pengaturan Ketinggian & Timer
+local SAFE_OFFSET_Y = -10
+local STUCK_OFFSET_Y = -7
+local STUCK_TIMEOUT = 90
+
+-- Variabel Status
+local autoFarmEnabled = false
+local initialCFrame = nil
+local lastSingleNpc = nil
+local singleNpcTimer = 0
+
+--------------------------------------------------------------------------------
+-- SISTEM GUI (Dijamin Muncul di PlayerGui HP)
+--------------------------------------------------------------------------------
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "AutoFarmGuiMobile"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = playerGui
+
+local toggleButton = Instance.new("TextButton")
+toggleButton.Name = "ToggleButton"
+toggleButton.Size = UDim2.new(0, 50, 0, 50) -- Ukuran 50x50 pixel
+toggleButton.Position = UDim2.new(0, 20, 0.35, 0) -- Di sebelah kiri tengah layar
+toggleButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50) -- Merah (OFF)
+toggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+toggleButton.TextSize = 14
+toggleButton.Font = Enum.Font.SourceSansBold
+toggleButton.Text = "OFF"
+toggleButton.Active = true
+toggleButton.Draggable = true -- Bisa digeser-geser pakai jari jika menutupi tombol lain!
+toggleButton.Parent = screenGui
+
+local uiCorner = Instance.new("UICorner")
+uiCorner.CornerRadius = UDim.new(0, 10)
+uiCorner.Parent = toggleButton
+
+--------------------------------------------------------------------------------
+-- LOGIKA TOMBOL & AUTO FARM
+--------------------------------------------------------------------------------
+toggleButton.Activated:Connect(function()
+    autoFarmEnabled = not autoFarmEnabled
+    
+    if autoFarmEnabled then
+        toggleButton.Text = "ON"
+        toggleButton.BackgroundColor3 = Color3.fromRGB(50, 200, 50) -- Hijau (ON)
+    else
+        toggleButton.Text = "OFF"
+        toggleButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50) -- Merah (OFF)
+        
+        local character = LocalPlayer.Character
+        if initialCFrame and character and character:FindFirstChild("HumanoidRootPart") then
+            character.HumanoidRootPart.CFrame = initialCFrame
+        end
+        
+        initialCFrame = nil
+        lastSingleNpc = nil
+        singleNpcTimer = 0
+    end
+end)
+
+local function getAliveNPCs()
+    local aliveList = {}
+    for _, npc in ipairs(EnemyFolder:GetChildren()) do
+        local npcHrp = npc:FindFirstChild("HumanoidRootPart") or npc.PrimaryPart
+        local npcHumanoid = npc:FindFirstChildOfClass("Humanoid")
+
+        local isAlive = npcHrp and (not npcHumanoid or (npcHumanoid.Health > 0 and npcHumanoid:GetState() ~= Enum.HumanoidStateType.Dead))
+        if isAlive then
+            table.insert(aliveList, npc)
+        end
+    end
+    return aliveList
+end
+
+task.spawn(function()
+    while task.wait(0.1) do
+        if autoFarmEnabled then
+            pcall(function()
+                local character = LocalPlayer.Character
+                if not character or not character:FindFirstChild("HumanoidRootPart") then 
+                    return 
+                end
+                
+                local hrp = character.HumanoidRootPart
+                local aliveNPCs = getAliveNPCs()
+
+                if #aliveNPCs > 0 then
+                    if not initialCFrame then
+                        initialCFrame = hrp.CFrame
+                    end
+
+                    if #aliveNPCs == 1 then
+                        local targetNpc = aliveNPCs[1]
+                        
+                        if lastSingleNpc == targetNpc then
+                            singleNpcTimer = singleNpcTimer + 0.1
+                        else
+                            lastSingleNpc = targetNpc
+                            singleNpcTimer = 0
+                        end
+                    else
+                        lastSingleNpc = nil
+                        singleNpcTimer = 0
+                    end
+
+                    if singleNpcTimer >= STUCK_TIMEOUT and lastSingleNpc then
+                        local targetHrp = lastSingleNpc:FindFirstChild("HumanoidRootPart") or lastSingleNpc.PrimaryPart
+                        if targetHrp then
+                            hrp.CFrame = targetHrp.CFrame * CFrame.new(0, STUCK_OFFSET_Y, 0)
+                        end
+                    else
+                        hrp.CFrame = initialCFrame * CFrame.new(0, SAFE_OFFSET_Y, 0)
+                    end
+
+                else
+                    if initialCFrame then
+                        hrp.CFrame = initialCFrame
+                        initialCFrame = nil
+                    end
+                    
+                    lastSingleNpc = nil
+                    singleNpcTimer = 0
+                end
+            end)
+        end
+    end
+end)
