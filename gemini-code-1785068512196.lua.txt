@@ -10,9 +10,9 @@ _G.AutoFarmStory = true
 -- PENGATURAN KORDINAT CHECKPOINT & OFFSET
 --------------------------------------------------------------------------------
 local CHECKPOINTS = {
-    Vector3.new(-6141, -202, 587),  -- Kordinat Room 1
-    Vector3.new(-4090, 441, 1572),  -- Kordinat Room 2
-    Vector3.new(-4292, 446, 3175),  -- Kordinat Room 3
+    Vector3.new(-6155, -198, 582),  -- Kordinat Room 1
+    Vector3.new(-4125, 446, 1496),  -- Kordinat Room 2
+    Vector3.new(-4265, 447, 3175),  -- Kordinat Room 3
     Vector3.new(-8871, 199, -1651), -- Kordinat Room 4
     Vector3.new(-4373, 521, -1947), -- Kordinat Room 5 (Terakhir)
 }
