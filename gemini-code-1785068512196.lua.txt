@@ -1,0 +1,240 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+
+-- SAKLAR UTAMA
+_G.AutoFarmStory = true
+
+--------------------------------------------------------------------------------
+-- PENGATURAN KORDINAT CHECKPOINT & OFFSET
+--------------------------------------------------------------------------------
+local CHECKPOINTS = {
+    Vector3.new(-6141, -202, 587),  -- Kordinat Room 1
+    Vector3.new(-4090, 441, 1572),  -- Kordinat Room 2
+    Vector3.new(-4292, 446, 3175),  -- Kordinat Room 3
+    Vector3.new(-8871, 199, -1651), -- Kordinat Room 4
+    Vector3.new(-4373, 521, -1947), -- Kordinat Room 5 (Terakhir)
+}
+
+local SAFE_OFFSET_Y = 0       
+local STUCK_OFFSET_Y = -8     
+local NO_DAMAGE_TIMEOUT = 30  
+local DETECTION_RADIUS = 60   
+
+--------------------------------------------------------------------------------
+-- VARIABEL STATUS
+--------------------------------------------------------------------------------
+local currentStageIndex = 1
+local lastDamageTime = tick()
+local isFinished = false
+
+--------------------------------------------------------------------------------
+-- SISTEM NOCLIP OTOMATIS
+--------------------------------------------------------------------------------
+local noClipConnection
+noClipConnection = RunService.Stepped:Connect(function()
+    if _G.AutoFarmStory then
+        local character = LocalPlayer.Character
+        if character then
+            for _, part in ipairs(character:GetDescendants()) do
+                if part:IsA("BasePart") and part.CanCollide then
+                    part.CanCollide = false
+                end
+            end
+        end
+    else
+        if noClipConnection then noClipConnection:Disconnect() end
+    end
+end)
+
+--------------------------------------------------------------------------------
+-- PENDETEKSI REMOTE DAMAGE (DmgEffectURE)
+--------------------------------------------------------------------------------
+task.spawn(function()
+    local remotes = ReplicatedStorage:WaitForChild("Remotes", 15)
+    if remotes then
+        local dmgRemote = remotes:WaitForChild("DmgEffectURE", 15)
+        if dmgRemote and dmgRemote:IsA("RemoteEvent") then
+            dmgRemote.OnClientEvent:Connect(function(...)
+                lastDamageTime = tick()
+            end)
+        end
+    end
+end)
+
+--------------------------------------------------------------------------------
+-- FUNGSI CEK HASIL GAME (ResultGui -> ScreenSettlement)
+--------------------------------------------------------------------------------
+local function checkGameFinished()
+    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    if playerGui then
+        local resultGui = playerGui:FindFirstChild("ResultGui")
+        if resultGui then
+            local screenSettlement = resultGui:FindFirstChild("ScreenSettlement")
+            if screenSettlement and screenSettlement.Visible == true then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+--------------------------------------------------------------------------------
+-- LOGIKA UTAMA AUTO FARM
+--------------------------------------------------------------------------------
+task.spawn(function()
+    local EnemyFolder = workspace:WaitForChild("EnemyNpc", 30)
+    
+    if not EnemyFolder then
+        warn("Folder 'EnemyNpc' belum ter-load!")
+        return
+    end
+
+    local function getNearbyAliveNPCs(centerPoint)
+        local nearbyList = {}
+        for _, npc in ipairs(EnemyFolder:GetChildren()) do
+            local npcHrp = npc:FindFirstChild("HumanoidRootPart") or npc.PrimaryPart
+            local npcHumanoid = npc:FindFirstChildOfClass("Humanoid")
+
+            if npcHrp and npcHumanoid and npcHumanoid.Health > 0 then
+                if npcHumanoid:GetState() ~= Enum.HumanoidStateType.Dead then
+                    local distance = (npcHrp.Position - centerPoint).Magnitude
+                    if distance <= DETECTION_RADIUS then
+                        table.insert(nearbyList, npc)
+                    end
+                end
+            end
+        end
+        return nearbyList
+    end
+
+    print("🚀 Auto Farm Story (Tahan 4 Detik Sebelum TP) Dimulai!")
+
+    -- PAKSA TELEPORT AWAL KE ROOM 1 DULUAN
+    local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    local hrp = character:WaitForChild("HumanoidRootPart", 10)
+    if hrp then
+        hrp.CFrame = CFrame.new(CHECKPOINTS[1]) * CFrame.Angles(math.rad(90), 0, 0)
+    end
+    
+    -- Jeda 2 detik pas awal masuk match biar game ke-load sempurna
+    task.wait(2)
+
+    while _G.AutoFarmStory and task.wait(0.05) do
+        pcall(function()
+            if isFinished then return end
+
+            local char = LocalPlayer.Character
+            if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+            
+            local charHrp = char.HumanoidRootPart
+            local humanoid = char:FindFirstChildOfClass("Humanoid")
+
+            -- 1. CEK SCREEN SETTLEMENT HASIL GAME (TAMAT)
+            if checkGameFinished() then
+                isFinished = true
+                print("🎉 ScreenSettlement Visible! Game Selesai, Menunggu 3 Detik...")
+
+                if humanoid then
+                    humanoid.AutoRotate = true
+                    humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+                end
+                
+                local freezeVel = charHrp:FindFirstChild("PositionLock")
+                if freezeVel then freezeVel:Destroy() end
+
+                task.wait(3)
+
+                local gameRoundRemote = ReplicatedStorage:WaitForChild("Remotes", 10):WaitForChild("GameRoundRE", 10)
+                if gameRoundRemote then
+                    gameRoundRemote:FireServer("VotePlayAgain")
+                    print("🔄 Remote VotePlayAgain Berhasil Ditembak!")
+                end
+                return
+            end
+
+            -- 2. PENAHAN GRAVITASI SUMBU Y
+            local freezeVel = charHrp:FindFirstChild("PositionLock")
+            if not freezeVel then
+                freezeVel = Instance.new("BodyVelocity")
+                freezeVel.Name = "PositionLock"
+                freezeVel.MaxForce = Vector3.new(0, math.huge, 0)
+                freezeVel.Velocity = Vector3.zero
+                freezeVel.Parent = charHrp
+            end
+
+            -- 3. JIKA BELUM TAMAT, BANTAI NPC DI KOORDINAT AKTIF
+            local currentPoint = CHECKPOINTS[currentStageIndex]
+            local nearbyNPCs = getNearbyAliveNPCs(currentPoint)
+
+            -- JIKA MASIH ADA NPC DI RADIUS 60 STUD
+            if #nearbyNPCs > 0 then
+                if humanoid then
+                    humanoid.AutoRotate = false
+                    humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+                end
+
+                local targetCFrame = nil
+                local timeSinceLastDamage = tick() - lastDamageTime
+
+                -- Anti-Nyangkut 30 Detik
+                if timeSinceLastDamage >= NO_DAMAGE_TIMEOUT then
+                    local targetNpc = nearbyNPCs[1]
+                    local targetHrp = targetNpc:FindFirstChild("HumanoidRootPart") or targetNpc.PrimaryPart
+                    
+                    if targetHrp then
+                        targetCFrame = targetHrp.CFrame * CFrame.new(0, STUCK_OFFSET_Y, 0)
+                    end
+                else
+                    targetCFrame = CFrame.new(currentPoint) * CFrame.new(0, SAFE_OFFSET_Y, 0)
+                end
+
+                if targetCFrame then
+                    charHrp.CFrame = targetCFrame * CFrame.Angles(math.rad(90), 0, 0)
+                    charHrp.AssemblyLinearVelocity = Vector3.zero
+                    charHrp.AssemblyAngularVelocity = Vector3.zero
+                end
+
+            else
+                -- JIKA NPC HABIS -> MENUNGGU 4 DETIK BARU TP KE ROOM BERIKUTNYA
+                lastDamageTime = tick()
+
+                if currentStageIndex < #CHECKPOINTS then
+                    print("Ea NPC di Room " .. currentStageIndex .. " Habis! Tahan 4 detik sebelum TP...")
+                    
+                    -- DIEM DULU 4 DETIK DI ROOM SAMA
+                    task.wait(4)
+
+                    currentStageIndex = currentStageIndex + 1
+                    local nextPoint = CHECKPOINTS[currentStageIndex]
+                    
+                    -- Teleport ke room berikutnya
+                    charHrp.CFrame = CFrame.new(nextPoint) * CFrame.Angles(math.rad(90), 0, 0)
+                    print("🚀 Teleport ke Room " .. currentStageIndex)
+
+                    -- Cooldown tambahan 2 detik biar NPC room baru sempat spawn
+                    task.wait(2)
+                else
+                    -- Kalau sudah di Room 5, tetap diam nempel di kordinat 5 menunggu Settlement Screen
+                    charHrp.CFrame = CFrame.new(currentPoint) * CFrame.Angles(math.rad(90), 0, 0)
+                end
+            end
+        end)
+    end
+
+    -- Cleanup kalau _G.AutoFarmStory = false
+    if noClipConnection then noClipConnection:Disconnect() end
+    local char = LocalPlayer.Character
+    if char then
+        local charHrp = char:FindFirstChild("HumanoidRootPart")
+        local humanoid = char:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            humanoid.AutoRotate = true
+            humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+        end
+        if charHrp and charHrp:FindFirstChild("PositionLock") then
+            charHrp.PositionLock:Destroy()
+        end
+    end
+end)
