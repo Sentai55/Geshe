@@ -1,0 +1,201 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+
+-- SAKLAR UTAMA
+_G.AutoFarmStory = true
+
+--------------------------------------------------------------------------------
+-- PENGATURAN KORDINAT CHECKPOINT & OFFSET
+--------------------------------------------------------------------------------
+local CHECKPOINTS = {
+    Vector3.new(-6141, -202, 587),  -- Kordinat 1
+    Vector3.new(-4090, 441, 1572),  -- Kordinat 2
+    Vector3.new(-4292, 446, 3175),  -- Kordinat 3
+    Vector3.new(-8871, 199, -1651), -- Kordinat 4
+    Vector3.new(-4373, 521, -1947), -- Kordinat 5 (Terakhir)
+}
+
+local SAFE_OFFSET_Y = 0       -- 0 Karena kordinat kamu sudah di bawah tanah
+local STUCK_OFFSET_Y = -8     -- Offset -8 stud di bawah NPC jika nyangkut
+local NO_DAMAGE_TIMEOUT = 30  -- Batas waktu (detik) jika NPC nyangkut
+local DETECTION_RADIUS = 100  -- Jarak deteksi NPC (100 stud dari kordinat aktif)
+
+--------------------------------------------------------------------------------
+-- VARIABEL STATUS
+--------------------------------------------------------------------------------
+local currentStageIndex = 1
+local lastDamageTime = tick()
+local isFinished = false
+
+--------------------------------------------------------------------------------
+-- SISTEM NOCLIP OTOMATIS (RUNSERVICE STEER)
+--------------------------------------------------------------------------------
+local noClipConnection
+noClipConnection = RunService.Stepped:Connect(function()
+    if _G.AutoFarmStory then
+        local character = LocalPlayer.Character
+        if character then
+            for _, part in ipairs(character:GetDescendants()) do
+                if part:IsA("BasePart") and part.CanCollide then
+                    part.CanCollide = false
+                end
+            end
+        end
+    else
+        if noClipConnection then
+            noClipConnection:Disconnect()
+        end
+    end
+end)
+
+--------------------------------------------------------------------------------
+-- PENDETEKSI REMOTE DAMAGE (DmgEffectURE)
+--------------------------------------------------------------------------------
+task.spawn(function()
+    local remotes = ReplicatedStorage:WaitForChild("Remotes", 15)
+    if remotes then
+        local dmgRemote = remotes:WaitForChild("DmgEffectURE", 15)
+        if dmgRemote and dmgRemote:IsA("RemoteEvent") then
+            dmgRemote.OnClientEvent:Connect(function(...)
+                lastDamageTime = tick()
+            end)
+        end
+    end
+end)
+
+--------------------------------------------------------------------------------
+-- LOGIKA UTAMA AUTO FARM (DETEKSI JARAK + ANTI-NYANGKUT)
+--------------------------------------------------------------------------------
+task.spawn(function()
+    local EnemyFolder = workspace:WaitForChild("EnemyNpc", 30)
+    
+    if not EnemyFolder then
+        warn("Folder 'EnemyNpc' belum ter-load!")
+        return
+    end
+
+    -- FUNGSI AMBIL NPC DALAM RADIUS 100 STUD DARI KORDINAT AKTIF
+    local function getNearbyAliveNPCs(centerPoint)
+        local nearbyList = {}
+        for _, npc in ipairs(EnemyFolder:GetChildren()) do
+            local npcHrp = npc:FindFirstChild("HumanoidRootPart") or npc.PrimaryPart
+            local npcHumanoid = npc:FindFirstChildOfClass("Humanoid")
+
+            local isAlive = npcHrp and (not npcHumanoid or (npcHumanoid.Health > 0 and npcHumanoid:GetState() ~= Enum.HumanoidStateType.Dead))
+            if isAlive then
+                local distance = (npcHrp.Position - centerPoint).Magnitude
+                if distance <= DETECTION_RADIUS then
+                    table.insert(nearbyList, npc)
+                end
+            end
+        end
+        return nearbyList
+    end
+
+    print("🚀 Auto Farm Mode Biasa + Auto NoClip Dimulai!")
+
+    while _G.AutoFarmStory and task.wait(0.05) do
+        pcall(function()
+            if isFinished then return end
+
+            local character = LocalPlayer.Character
+            if not character or not character:FindFirstChild("HumanoidRootPart") then return end
+            
+            local hrp = character.HumanoidRootPart
+            local humanoid = character:FindFirstChildOfClass("Humanoid")
+            
+            local currentPoint = CHECKPOINTS[currentStageIndex]
+            local nearbyNPCs = getNearbyAliveNPCs(currentPoint)
+
+            -- Penahan Gravitasi Sumbu Y
+            local freezeVel = hrp:FindFirstChild("PositionLock")
+            if not freezeVel then
+                freezeVel = Instance.new("BodyVelocity")
+                freezeVel.Name = "PositionLock"
+                freezeVel.MaxForce = Vector3.new(0, math.huge, 0)
+                freezeVel.Velocity = Vector3.zero
+                freezeVel.Parent = hrp
+            end
+
+            -- BILA MASIH ADA NPC DALAM RADIUS 100 STUD
+            if #nearbyNPCs > 0 then
+                if humanoid then
+                    humanoid.AutoRotate = false
+                    humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+                end
+
+                local targetCFrame = nil
+                local timeSinceLastDamage = tick() - lastDamageTime
+
+                -- BILA 30 DETIK GAK ADA DAMAGE (Anti-Nyangkut)
+                if timeSinceLastDamage >= NO_DAMAGE_TIMEOUT then
+                    local targetNpc = nearbyNPCs[1]
+                    local targetHrp = targetNpc:FindFirstChild("HumanoidRootPart") or targetNpc.PrimaryPart
+                    
+                    if targetHrp then
+                        targetCFrame = targetHrp.CFrame * CFrame.new(0, STUCK_OFFSET_Y, 0)
+                    end
+                else
+                    targetCFrame = CFrame.new(currentPoint) * CFrame.new(0, SAFE_OFFSET_Y, 0)
+                end
+
+                -- Kunci Posisi & Rotasi Miring 90 Derajat ke Atas
+                if targetCFrame then
+                    hrp.CFrame = targetCFrame * CFrame.Angles(math.rad(90), 0, 0)
+                    hrp.AssemblyLinearVelocity = Vector3.zero
+                    hrp.AssemblyAngularVelocity = Vector3.zero
+                end
+
+            else
+                -- BILA NPC DALAM RADIUS 100 STUD HABIS
+                lastDamageTime = tick()
+
+                if currentStageIndex < #CHECKPOINTS then
+                    -- Pindah ke Kordinat Selanjutnya
+                    currentStageIndex = currentStageIndex + 1
+                    print("Ea NPC di Radius 100 Stud Habis! Pindah ke Kordinat : " .. currentStageIndex)
+                    task.wait(0.5)
+                else
+                    -- KORDINAT TERAKHIR SELESAI
+                    if not isFinished then
+                        isFinished = true
+                        print("🎉 Semua Kordinat Selesai! Menunggu 3 Detik...")
+
+                        if humanoid then
+                            humanoid.AutoRotate = true
+                            humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+                        end
+                        if freezeVel then
+                            freezeVel:Destroy()
+                        end
+
+                        task.wait(3)
+
+                        local gameRoundRemote = ReplicatedStorage:WaitForChild("Remotes", 10):WaitForChild("GameRoundRE", 10)
+                        if gameRoundRemote then
+                            gameRoundRemote:FireServer("VotePlayAgain")
+                            print("🔄 Remote VotePlayAgain Berhasil Ditembak!")
+                        end
+                    end
+                end
+            end
+        end)
+    end
+
+    -- Pembersihan otomatis jika _G.AutoFarmStory = false
+    if noClipConnection then noClipConnection:Disconnect() end
+    local character = LocalPlayer.Character
+    if character then
+        local hrp = character:FindFirstChild("HumanoidRootPart")
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            humanoid.AutoRotate = true
+            humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+        end
+        if hrp and hrp:FindFirstChild("PositionLock") then
+            hrp.PositionLock:Destroy()
+        end
+    end
+end)
