@@ -1,0 +1,137 @@
+--------------------------------------------------------------------------------
+-- LOGIKA UTAMA AUTO FARM (FIX SPAM KOORDINAT)
+--------------------------------------------------------------------------------
+task.spawn(function()
+    local EnemyFolder = workspace:WaitForChild("EnemyNpc", 30)
+    
+    if not EnemyFolder then
+        warn("Folder 'EnemyNpc' belum ter-load!")
+        return
+    end
+
+    local function getNearbyAliveNPCs(centerPoint)
+        local nearbyList = {}
+        for _, npc in ipairs(EnemyFolder:GetChildren()) do
+            local npcHrp = npc:FindFirstChild("HumanoidRootPart") or npc.PrimaryPart
+            local npcHumanoid = npc:FindFirstChildOfClass("Humanoid")
+
+            if npcHrp and npcHumanoid and npcHumanoid.Health > 0 then
+                if npcHumanoid:GetState() ~= Enum.HumanoidStateType.Dead then
+                    local distance = (npcHrp.Position - centerPoint).Magnitude
+                    if distance <= DETECTION_RADIUS then
+                        table.insert(nearbyList, npc)
+                    end
+                end
+            end
+        end
+        return nearbyList
+    end
+
+    print("🚀 Auto Farm Story (Fixed Teleport & Cooldown) Dimulai!")
+
+    -- PAKSA TELEPORT AWAL KE KOORDINAT 1 DULUAN
+    local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    local hrp = character:WaitForChild("HumanoidRootPart", 10)
+    if hrp then
+        hrp.CFrame = CFrame.new(CHECKPOINTS[1]) * CFrame.Angles(math.rad(90), 0, 0)
+    end
+    
+    -- Jeda 2 detik pas awal masuk match biar folder NPC & map ke-load sempurna
+    task.wait(2)
+
+    while _G.AutoFarmStory and task.wait(0.05) do
+        pcall(function()
+            if isFinished then return end
+
+            local char = LocalPlayer.Character
+            if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+            
+            local charHrp = char.HumanoidRootPart
+            local humanoid = char:FindFirstChildOfClass("Humanoid")
+
+            -- 1. CEK SCREEN SETTLEMENT HASIL GAME
+            if checkGameFinished() then
+                isFinished = true
+                print("🎉 ScreenSettlement Visible! Menunggu 3 Detik...")
+
+                if humanoid then
+                    humanoid.AutoRotate = true
+                    humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+                end
+                
+                local freezeVel = charHrp:FindFirstChild("PositionLock")
+                if freezeVel then freezeVel:Destroy() end
+
+                task.wait(3)
+
+                local gameRoundRemote = ReplicatedStorage:WaitForChild("Remotes", 10):WaitForChild("GameRoundRE", 10)
+                if gameRoundRemote then
+                    gameRoundRemote:FireServer("VotePlayAgain")
+                    print("🔄 Remote VotePlayAgain Berhasil Ditembak!")
+                end
+                return
+            end
+
+            -- 2. PENAHAN GRAVITASI SUMBU Y
+            local freezeVel = charHrp:FindFirstChild("PositionLock")
+            if not freezeVel then
+                freezeVel = Instance.new("BodyVelocity")
+                freezeVel.Name = "PositionLock"
+                freezeVel.MaxForce = Vector3.new(0, math.huge, 0)
+                freezeVel.Velocity = Vector3.zero
+                freezeVel.Parent = charHrp
+            end
+
+            -- 3. SELALU TEMPEL POSISI KE KOORDINAT AKTIF
+            local currentPoint = CHECKPOINTS[currentStageIndex]
+            local nearbyNPCs = getNearbyAliveNPCs(currentPoint)
+
+            if #nearbyNPCs > 0 then
+                if humanoid then
+                    humanoid.AutoRotate = false
+                    humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+                end
+
+                local targetCFrame = nil
+                local timeSinceLastDamage = tick() - lastDamageTime
+
+                -- Anti-Nyangkut 30 Detik
+                if timeSinceLastDamage >= NO_DAMAGE_TIMEOUT then
+                    local targetNpc = nearbyNPCs[1]
+                    local targetHrp = targetNpc:FindFirstChild("HumanoidRootPart") or targetNpc.PrimaryPart
+                    
+                    if targetHrp then
+                        targetCFrame = targetHrp.CFrame * CFrame.new(0, STUCK_OFFSET_Y, 0)
+                    end
+                else
+                    targetCFrame = CFrame.new(currentPoint) * CFrame.new(0, SAFE_OFFSET_Y, 0)
+                end
+
+                if targetCFrame then
+                    charHrp.CFrame = targetCFrame * CFrame.Angles(math.rad(90), 0, 0)
+                    charHrp.AssemblyLinearVelocity = Vector3.zero
+                    charHrp.AssemblyAngularVelocity = Vector3.zero
+                end
+
+            else
+                -- JIKA NPC RADIUS HABIS -> TELEPORT KORDINAT BARU + BERI COOLDOWN 3 DETIK
+                lastDamageTime = tick()
+
+                if currentStageIndex < #CHECKPOINTS then
+                    print("Ea NPC di Kordinat " .. currentStageIndex .. " Habis! Menuju Kordinat " .. (currentStageIndex + 1) .. "...")
+                    
+                    currentStageIndex = currentStageIndex + 1
+                    local nextPoint = CHECKPOINTS[currentStageIndex]
+                    
+                    -- Teleport langsung ke kordinat berikutnya
+                    charHrp.CFrame = CFrame.new(nextPoint) * CFrame.Angles(math.rad(90), 0, 0)
+
+                    -- COOLDOWN TUNGGU NPC SPAWN (3 DETIK) AGAR SCRIPT GAK SPAM PINDAH!
+                    task.wait(3)
+                else
+                    -- Jika sudah di kordinat 5 dan NPC habis, tetap diam di kordinat 5 menunggu Settlement GUI
+                    charHrp.CFrame = CFrame.new(currentPoint) * CFrame.Angles(math.rad(90), 0, 0)
+                end
+            end
+        end)
+    end
