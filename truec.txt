@@ -1,0 +1,251 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+
+-- SAKLAR UTAMA
+_G.AutoFarmStory = true
+
+--------------------------------------------------------------------------------
+-- PENGATURAN KORDINAT CHECKPOINT & OFFSET
+--------------------------------------------------------------------------------
+local CHECKPOINTS = {
+    Vector3.new(-6141, -202, 587),  -- Room 1
+    Vector3.new(-4090, 441, 1572),  -- Room 2
+    Vector3.new(-4292, 446, 3175),  -- Room 3
+    Vector3.new(-8871, 199, -1651), -- Room 4
+    Vector3.new(-4373, 521, -1947), -- Room 5 (Terakhir)
+}
+
+local SAFE_OFFSET_Y = 0       
+local STUCK_OFFSET_Y = -8     
+local NO_DAMAGE_TIMEOUT = 30  
+local DETECTION_RADIUS = 60   
+
+--------------------------------------------------------------------------------
+-- VARIABEL STATUS
+--------------------------------------------------------------------------------
+local currentStageIndex = 1
+local lastDamageTime = tick()
+local isFinished = false
+
+--------------------------------------------------------------------------------
+-- SISTEM NOCLIP OTOMATIS
+--------------------------------------------------------------------------------
+RunService.Stepped:Connect(function()
+    if _G.AutoFarmStory then
+        local character = LocalPlayer.Character
+        if character then
+            for _, part in ipairs(character:GetDescendants()) do
+                if part:IsA("BasePart") and part.CanCollide then
+                    part.CanCollide = false
+                end
+            end
+        end
+    end
+end)
+
+--------------------------------------------------------------------------------
+-- PENDETEKSI REMOTE DAMAGE (DmgEffectURE)
+--------------------------------------------------------------------------------
+task.spawn(function()
+    local remotes = ReplicatedStorage:WaitForChild("Remotes", 10)
+    if remotes then
+        local dmgRemote = remotes:WaitForChild("DmgEffectURE", 10)
+        if dmgRemote and dmgRemote:IsA("RemoteEvent") then
+            dmgRemote.OnClientEvent:Connect(function(...)
+                lastDamageTime = tick()
+            end)
+        end
+    end
+end)
+
+--------------------------------------------------------------------------------
+-- FUNGSI CEK HASIL GAME (ResultGui -> ScreenSettlement)
+--------------------------------------------------------------------------------
+local function checkGameFinished()
+    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    if playerGui then
+        local resultGui = playerGui:FindFirstChild("ResultGui")
+        if resultGui then
+            local screenSettlement = resultGui:FindFirstChild("ScreenSettlement")
+            if screenSettlement and screenSettlement.Visible == true then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+--------------------------------------------------------------------------------
+-- FUNGSI CARI PORTAL TERDEKAT (SUPPORT Portal & PortalID)
+--------------------------------------------------------------------------------
+local function tpToNearestPortal(hrp)
+    local nearestPortalRoot = nil
+    local minDistance = math.huge
+
+    -- Scan semua objek di workspace
+    for _, v in pairs(workspace:GetDescendants()) do
+        if v.Name == "Root" and v.Parent then
+            local parentName = v.Parent.Name
+            
+            -- Saring apakah parent-nya "Portal" ATAU "PortalID"
+            if parentName == "Portal" or parentName == "PortalID" then
+                local distance = (hrp.Position - v.Position).Magnitude
+                if distance < minDistance then
+                    minDistance = distance
+                    nearestPortalRoot = v
+                end
+            end
+        end
+    end
+
+    if nearestPortalRoot then
+        print("🌀 Nemu Portal Trigger (" .. nearestPortalRoot.Parent.Name .. "): " .. nearestPortalRoot:GetFullName())
+        hrp.CFrame = nearestPortalRoot.CFrame
+        task.wait(math.random(1, 2)) -- Delay 1-2 detik biar trigger kebaca server
+    else
+        warn("⚠️ Portal terdekat tidak ditemukan!")
+    end
+end
+
+--------------------------------------------------------------------------------
+-- LOGIKA UTAMA AUTO FARM STORY
+--------------------------------------------------------------------------------
+task.spawn(function()
+    local EnemyFolder = workspace:FindFirstChild("EnemyNpc") or workspace:WaitForChild("EnemyNpc", 10)
+    
+    if not EnemyFolder then
+        warn("Folder 'EnemyNpc' belum ter-load!")
+        return
+    end
+
+    local function getNearbyAliveNPCs(centerPoint)
+        local nearbyList = {}
+        for _, npc in ipairs(EnemyFolder:GetChildren()) do
+            local npcHrp = npc:FindFirstChild("HumanoidRootPart") or npc.PrimaryPart
+            local npcHumanoid = npc:FindFirstChildOfClass("Humanoid")
+
+            if npcHrp and npcHumanoid and npcHumanoid.Health > 0 then
+                if npcHumanoid:GetState() ~= Enum.HumanoidStateType.Dead then
+                    local distance = (npcHrp.Position - centerPoint).Magnitude
+                    if distance <= DETECTION_RADIUS then
+                        table.insert(nearbyList, npc)
+                    end
+                end
+            end
+        end
+        return nearbyList
+    end
+
+    print("🚀 Auto Farm Story (Universal Portal Detection) Dimulai!")
+
+    -- TELEPORT AWAL KE ROOM 1
+    local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    local hrp = character:WaitForChild("HumanoidRootPart", 10)
+    if hrp then
+        hrp.CFrame = CFrame.new(CHECKPOINTS[1])
+    end
+    
+    task.wait(2)
+
+    while _G.AutoFarmStory and task.wait(0.05) do
+        pcall(function()
+            if isFinished then return end
+
+            local char = LocalPlayer.Character
+            if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+            
+            local charHrp = char.HumanoidRootPart
+            local humanoid = char:FindFirstChildOfClass("Humanoid")
+
+            -- 1. CEK HASIL GAME (TAMAT)
+            if checkGameFinished() then
+                isFinished = true
+                print("🎉 ScreenSettlement Visible! Game Selesai...")
+
+                if humanoid then
+                    humanoid.AutoRotate = true
+                end
+
+                task.wait(3)
+
+                local gameRoundRemote = ReplicatedStorage:WaitForChild("Remotes", 10):WaitForChild("GameRoundRE", 10)
+                if gameRoundRemote then
+                    gameRoundRemote:FireServer("VotePlayAgain")
+                    print("🔄 VotePlayAgain Ditembak!")
+                end
+                return
+            end
+
+            -- 2. PENAHAN GRAVITASI PERMANEN
+            local freezeVel = charHrp:FindFirstChild("PositionLock")
+            if not freezeVel then
+                freezeVel = Instance.new("BodyVelocity")
+                freezeVel.Name = "PositionLock"
+                freezeVel.MaxForce = Vector3.new(0, math.huge, 0)
+                freezeVel.Velocity = Vector3.zero
+                freezeVel.Parent = charHrp
+            end
+
+            -- 3. BANTAI NPC DI KOORDINAT AKTIF
+            local currentPoint = CHECKPOINTS[currentStageIndex]
+            local nearbyNPCs = getNearbyAliveNPCs(currentPoint)
+
+            if #nearbyNPCs > 0 then
+                if humanoid then
+                    humanoid.AutoRotate = false
+                end
+
+                local targetCFrame = nil
+                local timeSinceLastDamage = tick() - lastDamageTime
+
+                -- Anti-Nyangkut 30 Detik
+                if timeSinceLastDamage >= NO_DAMAGE_TIMEOUT then
+                    local targetNpc = nearbyNPCs[1]
+                    local targetHrp = targetNpc:FindFirstChild("HumanoidRootPart") or targetNpc.PrimaryPart
+                    
+                    if targetHrp then
+                        targetCFrame = targetHrp.CFrame * CFrame.new(0, STUCK_OFFSET_Y, 0)
+                    end
+                else
+                    targetCFrame = CFrame.new(currentPoint) * CFrame.new(0, SAFE_OFFSET_Y, 0)
+                end
+
+                if targetCFrame then
+                    charHrp.CFrame = targetCFrame
+                    charHrp.AssemblyLinearVelocity = Vector3.zero
+                    charHrp.AssemblyAngularVelocity = Vector3.zero
+                end
+
+            else
+                -- NPC HABIS -> PROSES PINDAH ROOM
+                lastDamageTime = tick()
+
+                if currentStageIndex < #CHECKPOINTS then
+                    print("Ea NPC Room " .. currentStageIndex .. " Habis! Tahan 4 detik...")
+                    
+                    -- TAHAN 4 DETIK SEBELUM PINDAH
+                    task.wait(4)
+
+                    currentStageIndex = currentStageIndex + 1
+
+                    -- KHUSUS CHECKPOINT 2, 3, 4, 5: MASUK PORTAL DULU
+                    if currentStageIndex >= 2 and currentStageIndex <= 5 then
+                        tpToNearestPortal(charHrp)
+                    end
+
+                    -- TP KE KORDINAT UTAMA ROOM SELANJUTNYA
+                    local nextPoint = CHECKPOINTS[currentStageIndex]
+                    charHrp.CFrame = CFrame.new(nextPoint)
+                    print("🚀 Teleport ke Kordinat Bantai Room " .. currentStageIndex)
+
+                    task.wait(2)
+                else
+                    -- Tetap diam di Room 5
+                    charHrp.CFrame = CFrame.new(currentPoint)
+                end
+            end
+        end)
+    end
+end)
