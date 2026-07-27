@@ -1,0 +1,198 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+
+-- SAKLAR UTAMA
+_G.AutoFarmStory = true
+
+--------------------------------------------------------------------------------
+-- PENGATURAN KOORDINAT CHECKPOINT & PORTAL
+--------------------------------------------------------------------------------
+-- Koordinat Tempat Bantai NPC
+local CHECKPOINTS = {
+    Vector3.new(-6141, -202, 587),  -- Room 1
+    Vector3.new(-4090, 441, 1572),  -- Room 2
+    Vector3.new(-4292, 446, 3175),  -- Room 3
+    Vector3.new(-8871, 199, -1651), -- Room 4
+    Vector3.new(-4373, 521, -1947), -- Room 5 (Terakhir)
+}
+
+-- Koordinat Pintu Portal Transisi
+local PORTAL_COORDS = {
+    [2] = Vector3.new(-6420, -170, 585),   -- Portal setelah Room 1 (Menuju Room 2)
+    [3] = Vector3.new(-4336, 465, 1584),   -- Portal setelah Room 2 (Menuju Room 3)
+    [4] = Vector3.new(-4044, 468, 3152),   -- Portal setelah Room 3 (Menuju Room 4)
+    [5] = Vector3.new(-8644, 221, -1196),  -- Portal setelah Room 4 (Menuju Room 5)
+}
+
+local SAFE_OFFSET_Y = 0
+
+--------------------------------------------------------------------------------
+-- VARIABEL STATUS
+--------------------------------------------------------------------------------
+local currentStageIndex = 1
+local isFinished = false
+
+--------------------------------------------------------------------------------
+-- SISTEM NOCLIP OTOMATIS
+--------------------------------------------------------------------------------
+RunService.Stepped:Connect(function()
+    if _G.AutoFarmStory then
+        local character = LocalPlayer.Character
+        if character then
+            for _, part in ipairs(character:GetDescendants()) do
+                if part:IsA("BasePart") and part.CanCollide then
+                    part.CanCollide = false
+                end
+            end
+        end
+    end
+end)
+
+--------------------------------------------------------------------------------
+-- FUNGSI CEK HASIL GAME (ResultGui -> ScreenSettlement)
+--------------------------------------------------------------------------------
+local function checkGameFinished()
+    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    if playerGui then
+        local resultGui = playerGui:FindFirstChild("ResultGui")
+        if resultGui then
+            local screenSettlement = resultGui:FindFirstChild("ScreenSettlement")
+            if screenSettlement and screenSettlement.Visible == true then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+--------------------------------------------------------------------------------
+-- FUNGSI HITUNG TOTAL NPC HIDUP DI MAP
+--------------------------------------------------------------------------------
+local function getAliveNPCCount(folder)
+    local count = 0
+    for _, npc in ipairs(folder:GetChildren()) do
+        local npcHumanoid = npc:FindFirstChildOfClass("Humanoid")
+        if npcHumanoid and npcHumanoid.Health > 0 and npcHumanoid:GetState() ~= Enum.HumanoidStateType.Dead then
+            count = count + 1
+        end
+    end
+    return count
+end
+
+--------------------------------------------------------------------------------
+-- LOGIKA UTAMA AUTO FARM STORY
+--------------------------------------------------------------------------------
+task.spawn(function()
+    local EnemyFolder = workspace:FindFirstChild("EnemyNpc") or workspace:WaitForChild("EnemyNpc", 10)
+    
+    if not EnemyFolder then
+        warn("Folder 'EnemyNpc' belum ter-load!")
+        return
+    end
+
+    print("🚀 Auto Farm Story (Ultra Clean - Folder Check) Dimulai!")
+
+    -- TELEPORT AWAL KE ROOM 1
+    local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    local hrp = character:WaitForChild("HumanoidRootPart", 10)
+    if hrp then
+        hrp.CFrame = CFrame.new(CHECKPOINTS[1])
+    end
+    
+    task.wait(2)
+
+    while _G.AutoFarmStory and task.wait(0.05) do
+        pcall(function()
+            if isFinished then return end
+
+            local char = LocalPlayer.Character
+            if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+            
+            local charHrp = char.HumanoidRootPart
+            local humanoid = char:FindFirstChildOfClass("Humanoid")
+
+            -- 1. CEK HASIL GAME (TAMAT)
+            if checkGameFinished() then
+                isFinished = true
+                print("🎉 ScreenSettlement Visible! Game Selesai...")
+
+                if humanoid then
+                    humanoid.AutoRotate = true
+                end
+
+                task.wait(3)
+
+                local gameRoundRemote = ReplicatedStorage:WaitForChild("Remotes", 10):WaitForChild("GameRoundRE", 10)
+                if gameRoundRemote then
+                    gameRoundRemote:FireServer("VotePlayAgain")
+                    print("🔄 VotePlayAgain Ditembak!")
+                end
+                return
+            end
+
+            -- 2. PENAHAN GRAVITASI PERMANEN
+            local freezeVel = charHrp:FindFirstChild("PositionLock")
+            if not freezeVel then
+                freezeVel = Instance.new("BodyVelocity")
+                freezeVel.Name = "PositionLock"
+                freezeVel.MaxForce = Vector3.new(0, math.huge, 0)
+                freezeVel.Velocity = Vector3.zero
+                freezeVel.Parent = charHrp
+            end
+
+            -- 3. BANTAI NPC DI KOORDINAT AKTIF
+            local currentPoint = CHECKPOINTS[currentStageIndex]
+            local aliveCount = getAliveNPCCount(EnemyFolder)
+
+            if aliveCount > 0 then
+                if humanoid then
+                    humanoid.AutoRotate = false
+                end
+
+                -- Tetap mengunci posisi di tempat bantai utama
+                charHrp.CFrame = CFrame.new(currentPoint) * CFrame.new(0, SAFE_OFFSET_Y, 0)
+                charHrp.AssemblyLinearVelocity = Vector3.zero
+                charHrp.AssemblyAngularVelocity = Vector3.zero
+
+            else
+                -- SEMUA NPC DI FOLDER HABIS -> PROSES PINDAH ROOM
+                if currentStageIndex < #CHECKPOINTS then
+                    print("Ea NPC Room " .. currentStageIndex .. " Habis Bersih! Tahan 4 detik...")
+                    
+                    -- TAHAN 4 DETIK SEBELUM PINDAH
+                    task.wait(4)
+
+                    currentStageIndex = currentStageIndex + 1
+
+                    -- A. LEPAS LOCK GRAVITASI SEBELUM TP KE PORTAL
+                    local currentLock = charHrp:FindFirstChild("PositionLock")
+                    if currentLock then
+                        currentLock:Destroy()
+                        print("🔓 Lock Gravitasi dilepas sementara...")
+                    end
+
+                    -- B. TELEPORT KE KOORDINAT PORTAL & TUNGGU 3 DETIK (BEBAS LOCK)
+                    local portalPos = PORTAL_COORDS[currentStageIndex]
+                    if portalPos then
+                        print("🌀 Teleport ke Portal " .. (currentStageIndex - 1) .. " (" .. tostring(portalPos) .. ")")
+                        charHrp.CFrame = CFrame.new(portalPos)
+                        
+                        task.wait(3)
+                    end
+
+                    -- C. TELEPORT KE KOORDINAT BANTAI ROOM SELANJUTNYA
+                    local nextPoint = CHECKPOINTS[currentStageIndex]
+                    charHrp.CFrame = CFrame.new(nextPoint)
+                    print("🚀 Teleport ke Kordinat Bantai Room " .. currentStageIndex)
+
+                    task.wait(2)
+                else
+                    -- Tetap diam di Room 5 jika sudah stage akhir
+                    charHrp.CFrame = CFrame.new(currentPoint)
+                end
+            end
+        end)
+    end
+end)
