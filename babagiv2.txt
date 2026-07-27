@@ -4,8 +4,8 @@ local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 
 -- Pengaturan Ketinggian & Timer
-local SAFE_OFFSET_Y = -10 -- Jarak di bawah posisi awal
-local STUCK_OFFSET_Y = -7 -- Jarak di bawah NPC jika nyangkut
+local SAFE_OFFSET_Y = -7 -- Jarak di bawah posisi awal
+local STUCK_OFFSET_Y = -10 -- Jarak di bawah NPC jika nyangkut
 local NO_DAMAGE_TIMEOUT = 30 -- Batas waktu (detik) jika tidak ada damage masuk
 
 -- Variabel Status
