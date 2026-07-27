@@ -240,7 +240,7 @@ task.spawn(function()
                     charHrp.CFrame = CFrame.new(nextPoint)
                     print("🚀 Teleport ke Kordinat Bantai Room " .. currentStageIndex)
 
-                    task.wait(2)
+                    task.wait(5)
                 else
                     -- Tetap diam di Room 5
                     charHrp.CFrame = CFrame.new(currentPoint)
