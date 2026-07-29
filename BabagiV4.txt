@@ -1,0 +1,280 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local LocalPlayer = Players.LocalPlayer
+
+-- Saklar Utama (Default: OFF)
+_G.AutoFarmTower = false
+
+-- Pengaturan Ketinggian & Timer
+local SAFE_OFFSET_Y = -10 -- Jarak di bawah posisi awal
+local STUCK_OFFSET_Y = -7 -- Jarak di bawah NPC jika nyangkut
+local NO_DAMAGE_TIMEOUT = 30 -- Batas waktu (detik) jika tidak ada damage masuk
+
+-- Variabel Status
+local initialCFrame = nil
+local lastDamageTime = tick()
+
+--------------------------------------------------------------------------------
+-- SISTEM GUI TOGGLE (40x40 pixel & Draggable)
+--------------------------------------------------------------------------------
+local function createToggleGUI()
+    local coreGui = game:GetService("CoreGui")
+    
+    -- Hapus GUI lama jika sudah ada
+    if coreGui:FindFirstChild("TowerFarmGUI") then
+        coreGui.TowerFarmGUI:Destroy()
+    end
+
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "TowerFarmGUI"
+    screenGui.ResetOnSpawn = false
+    screenGui.Parent = coreGui
+
+    local toggleBtn = Instance.new("TextButton")
+    toggleBtn.Name = "ToggleButton"
+    toggleBtn.Size = UDim2.new(0, 40, 0, 40) -- Ukuran 40x40 pixel
+    toggleBtn.Position = UDim2.new(0.05, 0, 0.4, 0)
+    toggleBtn.BackgroundColor3 = Color3.fromRGB(200, 40, 40) -- Warna Merah (OFF)
+    toggleBtn.Text = "OFF"
+    toggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    toggleBtn.TextSize = 14
+    toggleBtn.Font = Enum.Font.SourceSansBold
+    toggleBtn.Active = true
+    toggleBtn.Parent = screenGui
+
+    -- Sudut Rounded & Border
+    local uiCorner = Instance.new("UICorner")
+    uiCorner.CornerRadius = UDim.new(0, 8)
+    uiCorner.Parent = toggleBtn
+
+    local uiStroke = Instance.new("UIStroke")
+    uiStroke.Thickness = 2
+    uiStroke.Color = Color3.fromRGB(255, 255, 255)
+    uiStroke.Parent = toggleBtn
+
+    -- LOGIKA DRAG (Bisa Digeser)
+    local dragging = false
+    local dragInput, dragStart, startPos
+
+    local function update(input)
+        local delta = input.Position - dragStart
+        toggleBtn.Position = UDim2.new(
+            startPos.X.Scale, startPos.X.Offset + delta.X,
+            startPos.Y.Scale, startPos.Y.Offset + delta.Y
+        )
+    end
+
+    toggleBtn.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = toggleBtn.Position
+
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+
+    toggleBtn.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            update(input)
+        end
+    end)
+
+    -- LOGIKA KLIK TOGGLE ON / OFF
+    toggleBtn.MouseButton1Click:Connect(function()
+        _G.AutoFarmTower = not _G.AutoFarmTower
+
+        if _G.AutoFarmTower then
+            toggleBtn.BackgroundColor3 = Color3.fromRGB(40, 200, 40) -- Hijau (ON)
+            toggleBtn.Text = "ON"
+            lastDamageTime = tick()
+        else
+            toggleBtn.BackgroundColor3 = Color3.fromRGB(200, 40, 40) -- Merah (OFF)
+            toggleBtn.Text = "OFF"
+
+            -- Clean up saat dimatikan
+            local character = LocalPlayer.Character
+            if character then
+                local hrp = character:FindFirstChild("HumanoidRootPart")
+                local humanoid = character:FindFirstChildOfClass("Humanoid")
+                
+                if hrp then
+                    local lock = hrp:FindFirstChild("PositionLock")
+                    if lock then lock:Destroy() end
+                    
+                    if initialCFrame then
+                        hrp.CFrame = initialCFrame
+                        initialCFrame = nil
+                    end
+                end
+
+                if humanoid then
+                    humanoid.AutoRotate = true
+                end
+            end
+        end
+    end)
+end
+
+-- Jalankan pembuatan GUI
+createToggleGUI()
+
+--------------------------------------------------------------------------------
+-- SISTEM NOCLIP OTOMATIS
+--------------------------------------------------------------------------------
+RunService.Stepped:Connect(function()
+    if _G.AutoFarmTower then
+        local character = LocalPlayer.Character
+        if character then
+            for _, part in ipairs(character:GetDescendants()) do
+                if part:IsA("BasePart") and part.CanCollide then
+                    part.CanCollide = false
+                end
+            end
+        end
+    end
+end)
+
+--------------------------------------------------------------------------------
+-- PENDETEKSI REMOTE DAMAGE (DmgEffectURE)
+--------------------------------------------------------------------------------
+task.spawn(function()
+    local remotes = ReplicatedStorage:WaitForChild("Remotes", 10)
+    if remotes then
+        local dmgRemote = remotes:WaitForChild("DmgEffectURE", 10)
+        if dmgRemote and dmgRemote:IsA("RemoteEvent") then
+            dmgRemote.OnClientEvent:Connect(function(...)
+                if _G.AutoFarmTower then
+                    lastDamageTime = tick()
+                end
+            end)
+        end
+    end
+end)
+
+--------------------------------------------------------------------------------
+-- LOGIKA UTAMA AUTO FARM (NO FALL TO VOID & NOCLIP)
+--------------------------------------------------------------------------------
+task.spawn(function()
+    local EnemyFolder = workspace:FindFirstChild("EnemyNpc") or workspace:WaitForChild("EnemyNpc", 10)
+    
+    if not EnemyFolder then
+        warn("Folder 'EnemyNpc' tidak ditemukan di Workspace!")
+        return
+    end
+
+    local function getAliveNPCs()
+        local aliveList = {}
+        for _, npc in ipairs(EnemyFolder:GetChildren()) do
+            local npcHrp = npc:FindFirstChild("HumanoidRootPart") or npc.PrimaryPart
+            local npcHumanoid = npc:FindFirstChildOfClass("Humanoid")
+
+            local isAlive = npcHrp and (not npcHumanoid or (npcHumanoid.Health > 0 and npcHumanoid:GetState() ~= Enum.HumanoidStateType.Dead))
+            if isAlive then
+                table.insert(aliveList, npc)
+            end
+        end
+        return aliveList
+    end
+
+    while task.wait(0.05) do
+        if _G.AutoFarmTower then
+            pcall(function()
+                local character = LocalPlayer.Character
+                if not character or not character:FindFirstChild("HumanoidRootPart") then return end
+                
+                local hrp = character.HumanoidRootPart
+                local humanoid = character:FindFirstChildOfClass("Humanoid")
+                local aliveNPCs = getAliveNPCs()
+
+                -- Penahan Gravitasi Sumbu Y (Dibuat Permanen Biar Gak Jatuh ke Void)
+                local freezeVel = hrp:FindFirstChild("PositionLock")
+                if not freezeVel then
+                    freezeVel = Instance.new("BodyVelocity")
+                    freezeVel.Name = "PositionLock"
+                    freezeVel.MaxForce = Vector3.new(0, math.huge, 0)
+                    freezeVel.Velocity = Vector3.zero
+                    freezeVel.Parent = hrp
+                end
+
+                if #aliveNPCs > 0 then
+                    if not initialCFrame then
+                        initialCFrame = hrp.CFrame
+                    end
+
+                    if humanoid then
+                        humanoid.AutoRotate = false
+                    end
+
+                    local targetCFrame = nil
+
+                    -- HANYA AKTIF JIKA SISA MUSUH <= 3
+                    if #aliveNPCs <= 3 then
+                        local timeSinceLastDamage = tick() - lastDamageTime
+
+                        if timeSinceLastDamage >= NO_DAMAGE_TIMEOUT then
+                            -- Cari musuh terdekat dari sisa musuh yang ada
+                            local closestNpc = nil
+                            local shortestDistance = math.huge
+
+                            for _, npc in ipairs(aliveNPCs) do
+                                local npcHrp = npc:FindFirstChild("HumanoidRootPart") or npc.PrimaryPart
+                                if npcHrp then
+                                    local distance = (npcHrp.Position - hrp.Position).Magnitude
+                                    if distance < shortestDistance then
+                                        shortestDistance = distance
+                                        closestNpc = npc
+                                    end
+                                end
+                            end
+
+                            if closestNpc then
+                                local targetHrp = closestNpc:FindFirstChild("HumanoidRootPart") or closestNpc.PrimaryPart
+                                if targetHrp then
+                                    targetCFrame = targetHrp.CFrame * CFrame.new(0, STUCK_OFFSET_Y, 0)
+                                end
+                            end
+                        else
+                            targetCFrame = initialCFrame * CFrame.new(0, SAFE_OFFSET_Y, 0)
+                        end
+                    else
+                        -- Jika musuh masih ramai (> 3), reset timer & tetap di posisi aman
+                        lastDamageTime = tick()
+                        targetCFrame = initialCFrame * CFrame.new(0, SAFE_OFFSET_Y, 0)
+                    end
+
+                    -- Kunci Posisi Tegak Normal
+                    if targetCFrame then
+                        hrp.CFrame = targetCFrame
+                        hrp.AssemblyLinearVelocity = Vector3.zero
+                        hrp.AssemblyAngularVelocity = Vector3.zero
+                    end
+                else
+                    -- Jika NPC habis, balikkan posisi ke permukaan tapi PENAHAN GRAVITASI TETAP AKTIF
+                    if initialCFrame then
+                        hrp.CFrame = initialCFrame
+                        initialCFrame = nil
+                    end
+                    
+                    if humanoid then
+                        humanoid.AutoRotate = true
+                    end
+
+                    lastDamageTime = tick()
+                end
+            end)
+        end
+    end
+end)
