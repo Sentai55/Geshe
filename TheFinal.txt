@@ -173,7 +173,7 @@ task.delay(10, function()
                             print("🌀 Teleport ke Portal " .. (currentStageIndex - 1) .. " (" .. tostring(portalPos) .. ")")
                             charHrp.CFrame = CFrame.new(portalPos)
                             
-                            task.wait(1)
+                            task.wait(2)
                         end
 
                         -- C. TELEPORT KE KOORDINAT BANTAI ROOM SELANJUTNYA
@@ -181,7 +181,7 @@ task.delay(10, function()
                         charHrp.CFrame = CFrame.new(nextPoint)
                         print("📢 Teleport ke Kordinat Bantai Room " .. currentStageIndex)
 
-                        task.wait(3)
+                        task.wait(0.1)
                     else
                         -- Tetap diam di Room 5 jika sudah stage akhir
                         charHrp.CFrame = CFrame.new(currentPoint)
