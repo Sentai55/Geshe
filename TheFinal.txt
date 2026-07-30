@@ -156,7 +156,7 @@ task.delay(10, function()
                         print("Ea NPC Room " .. currentStageIndex .. " Habis Bersih! Tahan 4 detik...")
                         
                         -- TAHAN 4 DETIK SEBELUM PINDAH
-                        task.wait(4)
+                        task.wait(5.5)
 
                         currentStageIndex = currentStageIndex + 1
 
