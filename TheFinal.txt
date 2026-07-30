@@ -173,7 +173,7 @@ task.delay(10, function()
                             print("🌀 Teleport ke Portal " .. (currentStageIndex - 1) .. " (" .. tostring(portalPos) .. ")")
                             charHrp.CFrame = CFrame.new(portalPos)
                             
-                            task.wait(3)
+                            task.wait(2)
                         end
 
                         -- C. TELEPORT KE KOORDINAT BANTAI ROOM SELANJUTNYA
