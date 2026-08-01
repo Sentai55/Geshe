@@ -88,7 +88,9 @@ local daftar_id = {
 	"hyjtb4TS3EFkAFYeJ0lrJ2F8",
 	"sHmWtGIACWPDA1c550lrJ2F8",
 	"B5BxyNGg1F8y8qRxu0lrJ2F8",
-	"y5sWtEfhUF2AzE3n70lrJ2F8"
+	"y5sWtEfhUF2AzE3n70lrJ2F8",
+    "8Qbva2z4hotmLFJpPG0lrJ2F",
+    "Urec8YsbKyIEEtCkh0lrJ2F8"
 }
 
 local skills = {"Skill1", "Skill2", "SkillAW"}
