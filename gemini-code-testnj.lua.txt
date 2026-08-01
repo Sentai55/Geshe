@@ -1,0 +1,231 @@
+task.delay(10, function()
+
+    local Players = game:GetService("Players")
+    local ReplicatedStorage = game:GetService("ReplicatedStorage")
+    local RunService = game:GetService("RunService")
+    local LocalPlayer = Players.LocalPlayer
+
+    -- SAKLAR UTAMA
+    _G.AutoFarmStory = true
+
+    --------------------------------------------------------------------------------
+    -- DATABASE KOORDINAT MAP (BERDASARKAN PLACE ID)
+    --------------------------------------------------------------------------------
+    local MAP_DATA = {
+        -- MAP 4
+        [80693195250724] = {
+            NAME = "Map 4",
+            CHECKPOINTS = {
+                Vector3.new(-6141, -202, 587),  -- Room 1
+                Vector3.new(-4090, 441, 1572),  -- Room 2
+                Vector3.new(-4292, 446, 3175),  -- Room 3
+                Vector3.new(-8871, 199, -1651), -- Room 4
+                Vector3.new(-4373, 521, -1947), -- Room 5
+            },
+            PORTALS = {
+                [2] = Vector3.new(-6420, -170, 585),   -- Portal Room 1 -> 2
+                [3] = Vector3.new(-4336, 465, 1584),   -- Portal Room 2 -> 3
+                [4] = Vector3.new(-4044, 468, 3152),   -- Portal Room 3 -> 4
+                [5] = Vector3.new(-8644, 221, -1196),  -- Portal Room 4 -> 5
+            }
+        },
+
+        -- MAP 3
+        [112316840155266] = {
+            NAME = "Map 3",
+            CHECKPOINTS = {
+                Vector3.new(689, 56, 583),   -- Room 1
+                Vector3.new(27, -14, 807),   -- Room 2
+                Vector3.new(240, -3, 285),   -- Room 3
+                Vector3.new(-964, 9, 299),   -- Room 4
+                Vector3.new(-421, 23, 264),  -- Room 5
+            },
+            PORTALS = {
+                [2] = Vector3.new(549, 91, 596),  -- Portal Room 1 -> 2
+                [3] = Vector3.new(328, 0, 809),   -- Portal Room 2 -> 3
+                [4] = Vector3.new(439, 25, 284),  -- Portal Room 3 -> 4
+                -- Room 4 ke 5 tidak pakai portal (Direct TP)
+            }
+        }
+    }
+
+    --------------------------------------------------------------------------------
+    -- DETEKSI MAP AKTIF
+    --------------------------------------------------------------------------------
+    local currentMap = MAP_DATA[game.PlaceId]
+
+    if not currentMap then
+        warn("⚠️ Place ID (" .. tostring(game.PlaceId) .. ") Belum Terdaftar di Script!")
+        return
+    end
+
+    local CHECKPOINTS = currentMap.CHECKPOINTS
+    local PORTAL_COORDS = currentMap.PORTALS
+    local SAFE_OFFSET_Y = 0
+
+    --------------------------------------------------------------------------------
+    -- VARIABEL STATUS
+    --------------------------------------------------------------------------------
+    local currentStageIndex = 1
+    local isFinished = false
+    local isTransitioning = false
+
+    --------------------------------------------------------------------------------
+    -- SISTEM NOCLIP OTOMATIS
+    --------------------------------------------------------------------------------
+    RunService.Stepped:Connect(function()
+        if _G.AutoFarmStory then
+            local character = LocalPlayer.Character
+            if character then
+                for _, part in ipairs(character:GetDescendants()) do
+                    if part:IsA("BasePart") and part.CanCollide then
+                        part.CanCollide = false
+                    end
+                end
+            end
+        end
+    end)
+
+    --------------------------------------------------------------------------------
+    -- FUNGSI CEK HASIL GAME (TAMAT)
+    --------------------------------------------------------------------------------
+    local function checkGameFinished()
+        local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+        if playerGui then
+            local resultGui = playerGui:FindFirstChild("ResultGui")
+            if resultGui then
+                local screenSettlement = resultGui:FindFirstChild("ScreenSettlement")
+                if screenSettlement and screenSettlement.Visible == true then
+                    return true
+                end
+            end
+        end
+        return false
+    end
+
+    --------------------------------------------------------------------------------
+    -- FUNGSI CEK WAVES / ROOM CLEAR (UI RoundCompleted)
+    --------------------------------------------------------------------------------
+    local function isRoundCompleted()
+        local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+        if playerGui then
+            local battleHUD = playerGui:FindFirstChild("BattleHUD")
+            if battleHUD then
+                local informFrame = battleHUD:FindFirstChild("InformFrame")
+                if informFrame then
+                    local roundCompleted = informFrame:FindFirstChild("RoundCompleted")
+                    if roundCompleted and roundCompleted.Visible == true then
+                        return true
+                    end
+                end
+            end
+        end
+        return false
+    end
+
+    --------------------------------------------------------------------------------
+    -- LOGIKA UTAMA AUTO FARM STORY
+    --------------------------------------------------------------------------------
+    task.spawn(function()
+        print("📢 Auto Farm Story Aktif di: " .. currentMap.NAME .. " (Place ID: " .. tostring(game.PlaceId) .. ")")
+
+        while _G.AutoFarmStory and task.wait(0.05) do
+            pcall(function()
+                if isFinished or isTransitioning then return end
+
+                local char = LocalPlayer.Character
+                if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+                
+                local charHrp = char.HumanoidRootPart
+                local humanoid = char:FindFirstChildOfClass("Humanoid")
+
+                -- 1. CEK HASIL GAME (TAMAT)
+                if checkGameFinished() then
+                    isFinished = true
+                    print("🏆 ScreenSettlement Visible! Game Selesai...")
+
+                    if humanoid then
+                        humanoid.AutoRotate = true
+                    end
+
+                    task.wait(3)
+
+                    local gameRoundRemote = ReplicatedStorage:WaitForChild("Remotes", 10):WaitForChild("GameRoundRE", 10)
+                    if gameRoundRemote then
+                        gameRoundRemote:FireServer("VotePlayAgain")
+                        print("✉️ VotePlayAgain Ditembak!")
+                    end
+                    return
+                end
+
+                -- 2. PENAHAN GRAVITASI PERMANEN
+                local freezeVel = charHrp:FindFirstChild("PositionLock")
+                if not freezeVel then
+                    freezeVel = Instance.new("BodyVelocity")
+                    freezeVel.Name = "PositionLock"
+                    freezeVel.MaxForce = Vector3.new(0, math.huge, 0)
+                    freezeVel.Velocity = Vector3.zero
+                    freezeVel.Parent = charHrp
+                end
+
+                -- 3. LOGIKA UTAMA: BANTAI vs PINDAH ROOM
+                if not isRoundCompleted() then
+                    -- ROUND MASIH JALAN: Kunci posisi di titik bantai room aktif
+                    if humanoid then
+                        humanoid.AutoRotate = false
+                    end
+
+                    local currentPoint = CHECKPOINTS[currentStageIndex]
+                    charHrp.CFrame = CFrame.new(currentPoint) * CFrame.new(0, SAFE_OFFSET_Y, 0)
+                    charHrp.AssemblyLinearVelocity = Vector3.zero
+                    charHrp.AssemblyAngularVelocity = Vector3.zero
+
+                else
+                    -- ROUND COMPLETED (VISIBLE = TRUE) -> PROSES PINDAH ROOM!
+                    if currentStageIndex < #CHECKPOINTS then
+                        isTransitioning = true
+                        print("⚔️ RoundCompleted Visible! Jeda 2 detik...")
+
+                        task.wait(2)
+
+                        currentStageIndex = currentStageIndex + 1
+
+                        -- A. CABUT LOCK GRAVITASI SEBELUM TRANSISI
+                        local currentLock = charHrp:FindFirstChild("PositionLock")
+                        if currentLock then
+                            currentLock:Destroy()
+                            print("🔓 Lock Gravitasi dilepas...")
+                        end
+
+                        -- B. TELEPORT KE PORTAL (JIKA ADA PORTALNYA)
+                        local portalPos = PORTAL_COORDS[currentStageIndex]
+                        if portalPos then
+                            print("🌀 Teleport ke Portal " .. (currentStageIndex - 1))
+                            charHrp.CFrame = CFrame.new(portalPos)
+                            task.wait(3) -- Nunggu portal game nge-TP karakter ke room baru
+                        else
+                            print("⚡ Tidak ada portal untuk Room " .. currentStageIndex .. " (Langsung TP ke titik bantai!)")
+                        end
+
+                        -- C. TELEPORT KE KOORDINAT BANTAI & RESET VELOCITY
+                        local nextPoint = CHECKPOINTS[currentStageIndex]
+                        
+                        charHrp.CFrame = CFrame.new(nextPoint)
+                        charHrp.AssemblyLinearVelocity = Vector3.zero
+                        charHrp.AssemblyAngularVelocity = Vector3.zero
+                        
+                        print("📌 Tiba di Room " .. currentStageIndex .. "! Mengamankan posisi...")
+                        task.wait(1.5)
+
+                        isTransitioning = false
+                    else
+                        -- Tetap diam di Room 5 jika sudah stage akhir
+                        local currentPoint = CHECKPOINTS[currentStageIndex]
+                        charHrp.CFrame = CFrame.new(currentPoint)
+                    end
+                end
+            end)
+        end
+    end)
+
+end)
