@@ -13,7 +13,7 @@ task.delay(13, function()
     -- KONFIGURASI CONSTANT & PLACE ID
     --------------------------------------------------------------------------------
     local LOBBY_PLACE_ID = 117533937949084
-    local LOBBY_ENTER_POS = Vector3.new(9962, 13, 105) -- Koordinat Queue/Portal Lobby
+    local LOBBY_ENTER_POS = Vector3.new(9960, 13, 95) -- Koordinat Queue/Portal Lobby
 
     --------------------------------------------------------------------------------
     -- DATABASE KOORDINAT MAP
