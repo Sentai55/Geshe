@@ -3,7 +3,11 @@ local CoreGui = game:GetService("CoreGui")
 local oldGui = CoreGui:FindFirstChild("DeltaCustomToggle")
 if oldGui then oldGui:Destroy() end
 
--- 2. MEMBUAT INSTANCE GUI (40x40 di tengah layar)
+-- 2. PENGECEKAN PLACE ID
+local TARGET_OFF_PLACE_ID = 117533937949084
+local isLooping = (game.PlaceId ~= TARGET_OFF_PLACE_ID)
+
+-- 3. MEMBUAT INSTANCE GUI (40x40 di tengah layar)
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "DeltaCustomToggle"
 ScreenGui.ResetOnSpawn = false
@@ -14,14 +18,14 @@ button.Parent = ScreenGui
 button.Size = UDim2.new(0, 40, 0, 40)
 button.AnchorPoint = Vector2.new(0.5, 0.5) 
 button.Position = UDim2.new(0.5, 0, 0.5, 0)
-button.Text = "ON"
-button.BackgroundColor3 = Color3.fromRGB(65, 255, 65)
+button.Text = isLooping and "ON" or "OFF"
+button.BackgroundColor3 = isLooping and Color3.fromRGB(65, 255, 65) or Color3.fromRGB(255, 65, 65)
 button.TextColor3 = Color3.fromRGB(255, 255, 255)
 button.Font = Enum.Font.SourceSansBold
 button.TextSize = 14
 button.Active = true
 
--- 3. LOGIKA DRAGGABLE (BISA DIGESER)
+-- 4. LOGIKA DRAGGABLE
 local UserInputService = game:GetService("UserInputService")
 local dragging, dragInput, dragStart, startPos
 local function update(input)
@@ -37,76 +41,100 @@ end)
 button.InputChanged:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then dragInput = input end end)
 UserInputService.InputChanged:Connect(function(input) if input == dragInput and dragging then update(input) end end)
 
--- 4. INISIALISASI REMOTE EVENT GAME
+-- 5. REMOTES
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-
--- Remote Equip
 local Framework = ReplicatedStorage:WaitForChild("Framework", 5)
 if not Framework then button.Text = "ERR" return end
+
 local EquipmentRE = Framework:WaitForChild("Gameplay"):WaitForChild("EquipmentSystem"):WaitForChild("EquipmentRE")
-
--- Remote Skill
-local Remotes = ReplicatedStorage:WaitForChild("Remotes", 5)
-if not Remotes then button.Text = "ERR" return end
-local PlayerActionRE = Remotes:WaitForChild("PlayerActionRE")
+local RedPointRemote = Framework:WaitForChild("Systems"):WaitForChild("RedPointSystem"):WaitForChild("RedPointUtil"):WaitForChild("RemoteEvent")
+local PlayerActionRE = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("PlayerActionRE")
 
 -- ====================================================================
--- 5. DAFTAR TOTAL 35 ID SENJATA GABUNGAN
+-- 6. SYSTEM SAVING KE FILE DEVICE (JSON CACHE)
 -- ====================================================================
-local daftar_id = {
-	"KCXyo141fi7yh2IOpE0lrJ2F",
-	"fIsvpD54sXPMMk9XK0lrJ2F8",
-	"RCwC9ujeKh3VWP4dn0lrJ2F8",
-	"QDNrgKI1m3gcSBgXC0lrJ2F8",
-	"XvMq7FzWnKRbqjpaX0lrJ2F8",
-	"fq4RO1Bc4NV8611y9G0lrJ2F",
-	"Se3sg3FlSdlIjKvhP0lrJ2F8",
-	"kkIKxv4ORRI4gZb810lrJ2F8",
-	"jPGC9kWv4Mi5JdM6z0lrJ2F8",
-	"R4hJAKpPj4MRFJ0vb0lrJ2F8",
-	"BFKMank1h8OHlBSfJ0lrJ2F8",
-	"6AKPyoZnQzbqRBJ5B0lrJ2F8",
-	"jnNV9Z5liA7kMd9iY0lrJ2F8",
-	"EFgB9fRNJdaVRlYmv0lrJ2F8",
-	"wquwpAFhHIp4G1tyf0lrJ2F8",
-	"RHW06n2a7DCBv1HMB0lrJ2F8",
-	"ZoEPyu2yBQHfGaNeI0lrJ2F8",
-	"1e2Pyd5leMCyK5O7a0lrJ2F8",
-	"KiHubLVVacisqjhgV0lrJ2F8",
-	"FGrB910ji2X337W1s0lrJ2F8",
-	"7ABvptQJGxTIoqq060lrJ2F8",
-	"va0kfjYrzwpuWxrXD0lrJ2F8",
-	"AlfgbZ1CiVOpdw33F0lrJ2F8",
-	"7qlQf0SyyUAMcukVU0lrJ2F8",
-	"GDBRfTwpiXMNCfgB50lrJ2F8",
-	"BKiFyMvEUgeuRgW0j0lrJ2F8",
-	"VXYFyWLPKNuQ3xleP0lrJ2F8",
-	"xR7wm6k5JHFLQh1o60lrJ2F8",
-	"IPlwpqNmQOqCA1ZdY0lrJ2F8",
-	"enWwpTFWCOi0GpJ8N0lrJ2F8",
-	"KvbvpdBYLxITQyfiw0lrJ2F8",
-	"hyjtb4TS3EFkAFYeJ0lrJ2F8",
-	"sHmWtGIACWPDA1c550lrJ2F8",
-	"B5BxyNGg1F8y8qRxu0lrJ2F8",
-	"y5sWtEfhUF2AzE3n70lrJ2F8",
-    "8Qbva2z4hotmLFJpPG0lrJ2F",
-    "Urec8YsbKyIEEtCkh0lrJ2F8"
-}
+local HttpService = game:GetService("HttpService")
+local fileName = "senjata_cache.json"
+
+local daftar_id = {}
+local id_set = {}
+
+-- Load ID dari file jika file-nya ada di device
+if isfile and isfile(fileName) then
+    local success, decoded = pcall(function()
+        return HttpService:JSONDecode(readfile(fileName))
+    end)
+    if success and type(decoded) == "table" then
+        daftar_id = decoded
+        for _, id in ipairs(daftar_id) do
+            id_set[id] = true
+        end
+        print("[AUTO-LOAD] Berhasil memuat " .. #daftar_id .. " ID Senjata dari simpanan device!")
+    end
+end
+
+-- Fungsi simpan ID baru ke file device
+local function addAndSaveID(id)
+    if id and not id_set[id] then
+        id_set[id] = true
+        table.insert(daftar_id, id)
+        if writefile then
+            writefile(fileName, HttpService:JSONEncode(daftar_id))
+        end
+        print("[AUTO-SAVE] ID Baru Tersimpan ke Device:", id, "| Total:", #daftar_id)
+    end
+end
+
+-- Scan ScrollingFrame di Lobby jika ada
+task.spawn(function()
+	local Players = game:GetService("Players")
+	local LocalPlayer = Players.LocalPlayer
+	local scroll = LocalPlayer:FindFirstChild("PlayerGui")
+		and LocalPlayer.PlayerGui:FindFirstChild("MainGui")
+		and LocalPlayer.PlayerGui.MainGui:FindFirstChild("ScreenBackpack")
+		and LocalPlayer.PlayerGui.MainGui.ScreenBackpack:FindFirstChild("InventoryFrame")
+		and LocalPlayer.PlayerGui.MainGui.ScreenBackpack.InventoryFrame:FindFirstChild("EquipmentContent")
+		and LocalPlayer.PlayerGui.MainGui.ScreenBackpack.InventoryFrame.EquipmentContent:FindFirstChild("ScrollingFrame")
+	
+	if scroll then
+		for _, child in ipairs(scroll:GetChildren()) do
+			if not child:IsA("UIGridLayout") and not child:IsA("LocalScript") and not child:IsA("UIListLayout") then
+				addAndSaveID(child.Name)
+			end
+		end
+	end
+end)
+
+-- Hook listener untuk menangkap ID baru di mana saja
+local oldFireServer
+oldFireServer = hookmetamethod(game, "__namecall", function(self, ...)
+    local method = getnamecallmethod()
+    local args = {...}
+
+    if self == RedPointRemote and (method == "FireServer" or method == "fireServer") then
+        if args[1] == "Clear" and args[2] == "Weapon" and args[3] then
+            addAndSaveID(tostring(args[3]))
+        end
+    end
+    return oldFireServer(self, ...)
+end)
 
 local skills = {"Skill1", "Skill2", "SkillAW"}
 local numbers = {1, 2, 3, 4, 5}
 
--- 6. LOGIKA EKSEKUSI (LANGSUNG AKTIF DEFAULT)
-local isLooping = true
-
+-- 7. DUAL LOOP AUTOMATIS
 local function startLoops()
-	-- LOOP 1: AUTO EQUIP WEAPON (35 SENJATA)
+	-- LOOP 1: AUTO EQUIP
 	task.spawn(function()
 		while isLooping do
-			for i = 1, #daftar_id do
-				if not isLooping then break end
-				EquipmentRE:FireServer("Equip", daftar_id[i], "Weapon")
-				task.wait(0.01)
+			if #daftar_id > 0 then
+				for i = 1, #daftar_id do
+					if not isLooping then break end
+					EquipmentRE:FireServer("Equip", daftar_id[i], "Weapon")
+					task.wait(0.01)
+				end
+			else
+				task.wait(0.2)
 			end
 		end
 	end)
@@ -126,13 +154,14 @@ local function startLoops()
 	end)
 end
 
--- Langsung eksekusi pas script di-run
-startLoops()
+-- Jalankan loop hanya jika kondisi awal isLooping == true
+if isLooping then
+	startLoops()
+end
 
--- Fitur Klik Tombol Toggle (ON / OFF)
+-- Toggle Button ON / OFF
 button.MouseButton1Click:Connect(function()
 	isLooping = not isLooping
-	
 	if isLooping then
 		button.Text = "ON"
 		button.BackgroundColor3 = Color3.fromRGB(65, 255, 65)
