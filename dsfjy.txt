@@ -84,7 +84,7 @@ task.delay(13, function()
             charHrp.AssemblyLinearVelocity = Vector3.zero
             
             -- TWEEN MOVEMENT KE QUEUE AREA (Durasi 0.8 Detik)
-            local tweenInfo = TweenInfo.new(0.8, Enum.EasingStyle.Linear)
+            local tweenInfo = TweenInfo.new(1.4, Enum.EasingStyle.Linear)
             local tween = TweenService:Create(charHrp, tweenInfo, {CFrame = CFrame.new(LOBBY_ENTER_POS)})
             
             tween:Play()
