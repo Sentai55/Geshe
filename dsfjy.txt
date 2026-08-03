@@ -1,8 +1,9 @@
-task.delay(15, function()
+task.delay(13, function()
 
     local Players = game:GetService("Players")
     local ReplicatedStorage = game:GetService("ReplicatedStorage")
     local RunService = game:GetService("RunService")
+    local TweenService = game:GetService("TweenService")
     local LocalPlayer = Players.LocalPlayer
 
     -- SAKLAR UTAMA
@@ -12,7 +13,7 @@ task.delay(15, function()
     -- KONFIGURASI CONSTANT & PLACE ID
     --------------------------------------------------------------------------------
     local LOBBY_PLACE_ID = 117533937949084
-    local LOBBY_ENTER_POS = Vector3.new(9962, 13, 105) -- Koordinat TP di Lobby
+    local LOBBY_ENTER_POS = Vector3.new(9962, 13, 105) -- Koordinat Queue/Portal Lobby
 
     --------------------------------------------------------------------------------
     -- DATABASE KOORDINAT MAP
@@ -60,22 +61,40 @@ task.delay(15, function()
     -- 1. LOGIKA LOBBY (JIKA PLAYER DI LOBBY)
     --------------------------------------------------------------------------------
     if game.PlaceId == LOBBY_PLACE_ID then
-        print("🏰 Player berada di Lobby! Menyiapkan Auto Enter Dungeon...")
-        task.wait(3) -- Tunggu UI & Remote ter-load sempurna
+        print("🏰 Di Lobby! Menunggu proses loading selesai total...")
         
+        -- Tunggu Game Engine Loaded
+        if not game:IsLoaded() then
+            game.Loaded:Wait()
+        end
+        
+        local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+        local charHrp = char:WaitForChild("HumanoidRootPart", 20)
+        local humanoid = char:WaitForChild("Humanoid", 20)
+        local playerGui = LocalPlayer:WaitForChild("PlayerGui", 20)
+
+        -- Kunci: Tunggu sampai karakter napak & health full
+        repeat task.wait(0.5) until charHrp and humanoid and humanoid.Health > 0
+
+        print("✅ Karakter Siap! Memulai Tween ke Queue Area...")
+        task.wait(1)
+
         pcall(function()
-            local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-            local charHrp = char:WaitForChild("HumanoidRootPart", 10)
+            -- Reset kecepatan fisik biar gak bentrok pas di-tween
+            charHrp.AssemblyLinearVelocity = Vector3.zero
+            
+            -- TWEEN MOVEMENT KE QUEUE AREA (Durasi 0.8 Detik)
+            local tweenInfo = TweenInfo.new(0.8, Enum.EasingStyle.Linear)
+            local tween = TweenService:Create(charHrp, tweenInfo, {CFrame = CFrame.new(LOBBY_ENTER_POS)})
+            
+            tween:Play()
+            tween.Completed:Wait() -- Kunci script sampai karakter bener-bener nyampe
+            
+            print("📍 Sampai di Queue Area via Tween!")
+            task.wait(1) -- Jeda 1 detik biar server mendaftarkan posisi baru karakter
 
-            -- 1. TELEPORT KANAN KE KOORDINAT LOBBY DULU
-            if charHrp then
-                print("📍 Teleport ke koordinat portal lobby: " .. tostring(LOBBY_ENTER_POS))
-                charHrp.CFrame = CFrame.new(LOBBY_ENTER_POS)
-                task.wait(1) -- Jeda sebentar biar posisi sync di server
-            end
-
-            -- 2. TEMBAK REMOTE SELESEI TELEPORT
-            local gameMatchRE = ReplicatedStorage:WaitForChild("Remotes", 10):WaitForChild("GameMatchRE", 10)
+            -- TEMBAK REMOTE SETELAH NYAMPE
+            local gameMatchRE = ReplicatedStorage:WaitForChild("Remotes", 15):WaitForChild("GameMatchRE", 15)
             if gameMatchRE then
                 print("🎮 Menembak Remote Enter Dungeon (World4 Stage 10)...")
                 gameMatchRE:FireServer("SelectWorld", "World4", 10)
@@ -85,6 +104,7 @@ task.delay(15, function()
                 warn("⚠️ Remote GameMatchRE tidak ditemukan!")
             end
         end)
+
         return -- Hentikan script dungeon jika di lobby
     end
 
@@ -179,7 +199,6 @@ task.delay(15, function()
 
                     if humanoid then humanoid.AutoRotate = true end
                     
-                    -- Hapus Gravity Lock biar ga melayang kaku
                     local currentLock = charHrp:FindFirstChild("PositionLock")
                     if currentLock then currentLock:Destroy() end
 
@@ -190,15 +209,13 @@ task.delay(15, function()
                         
                         print("🔄 Mulai Spam VotePlayAgain selama 5 detik...")
                         
-                        -- Loop spam Play Again selama 5 detik
                         while (tick() - startTime) < 5 do
                             if gameRoundRemote then
                                 gameRoundRemote:FireServer("VotePlayAgain")
                             end
-                            task.wait(0.2) -- Spam setiap 0.2 detik
+                            task.wait(0.2)
                         end
                         
-                        -- Jika lewat 5 detik masih berada di tempat (belum teleport ulang ke dungeon baru)
                         print("⏱️ 5 Detik berlalu! Tidak ada response PlayAgain, balik ke Lobby...")
                         pcall(function()
                             local backLobbyRemote = ReplicatedStorage.Framework.Gameplay.World1Place.World1Util.RemoteEvent
@@ -222,7 +239,6 @@ task.delay(15, function()
                 local roundUI = getRoundCompletedUI()
                 local isUIVisible = roundUI and roundUI.Visible == true
 
-                -- LOGIKA UTAMA: PULL TRIGGER PAS VISIBLE = TRUE
                 if isUIVisible and not isTransitioning then
                     
                     isTransitioning = true
