@@ -1,4 +1,4 @@
-task.delay(5, function()
+task.delay(10, function()
 
     local Players = game:GetService("Players")
     local ReplicatedStorage = game:GetService("ReplicatedStorage")
