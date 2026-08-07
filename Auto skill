@@ -139,16 +139,20 @@ local function startLoops()
 		end
 	end)
 	
-	-- LOOP 2: AUTO SKILL ACTION
+	-- LOOP 2: AUTO SKILL ACTION (Spam paralel 1-5)
 	task.spawn(function()
 		while isLooping do
 			for _, skillName in ipairs(skills) do
-				for _, num in ipairs(numbers) do
-					if not isLooping then break end
-					PlayerActionRE:FireServer("SkillAction", skillName, num)
-					task.wait(0.01)
-				end
 				if not isLooping then break end
+				
+				-- Tembak angka 1-5 bersamaan di tick yang sama
+				for _, num in ipairs(numbers) do
+					task.spawn(function()
+						PlayerActionRE:FireServer("SkillAction", skillName, num)
+					end)
+				end
+				
+				task.wait(0.01)
 			end
 		end
 	end)
