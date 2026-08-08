@@ -1,4 +1,4 @@
-task.delay(13, function()
+task.delay(10, function()
 
     local Players = game:GetService("Players")
     local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -202,13 +202,14 @@ task.delay(13, function()
                     local currentLock = charHrp:FindFirstChild("PositionLock")
                     if currentLock then currentLock:Destroy() end
 
-                    -- SPAM VOTE PLAY AGAIN & TIMEOUT BACK LOBBY
+                    -- SPAM VOTE 5 DETIK -> TUNGGU total 10 DETIK -> BACK LOBBY
                     task.spawn(function()
                         local gameRoundRemote = ReplicatedStorage:WaitForChild("Remotes", 10):WaitForChild("GameRoundRE", 10)
                         local startTime = tick()
                         
                         print("🔄 Mulai Spam VotePlayAgain selama 5 detik...")
                         
+                        -- Loop Spam Vote selama 5 detik pertama
                         while (tick() - startTime) < 5 do
                             if gameRoundRemote then
                                 gameRoundRemote:FireServer("VotePlayAgain")
@@ -216,10 +217,23 @@ task.delay(13, function()
                             task.wait(0.2)
                         end
                         
-                        print("⏱️ 5 Detik berlalu! Tidak ada response PlayAgain, balik ke Lobby...")
+                        print("🛑 Selesai Spam VotePlayAgain! Menunggu sisa waktu hingga total 10 detik...")
+                        
+                        -- Hitung sisa waktu agar total jeda pas 10 detik dari game selesai
+                        local elapsedTime = tick() - startTime
+                        local remainingTime = 10 - elapsedTime
+                        if remainingTime > 0 then
+                            task.wait(remainingTime)
+                        end
+                        
+                        print("⏱️ Total 10 detik berlalu! Mengirim perintah BackLobby...")
                         pcall(function()
-                            local backLobbyRemote = ReplicatedStorage.Framework.Gameplay.World1Place.World1Util.RemoteEvent
-                            backLobbyRemote:FireServer("BackLobby")
+                            local backLobbyRemote = ReplicatedStorage:WaitForChild("Framework", 10):WaitForChild("Gameplay", 10):WaitForChild("WorldPlace", 10):WaitForChild("WorldUtil", 10):WaitForChild("RemoteEvent", 10)
+                            if backLobbyRemote then
+                                backLobbyRemote:FireServer("BackLobby")
+                            else
+                                warn("⚠️ Remote BackLobby tidak ditemukan!")
+                            end
                         end)
                     end)
                     return
