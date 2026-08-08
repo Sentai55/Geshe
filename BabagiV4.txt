@@ -1,5 +1,4 @@
-local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+  local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer
@@ -7,14 +6,11 @@ local LocalPlayer = Players.LocalPlayer
 -- Saklar Utama (Default: OFF)
 _G.AutoFarmTower = false
 
--- Pengaturan Ketinggian & Timer
-local SAFE_OFFSET_Y = -10 -- Jarak di bawah posisi awal
-local STUCK_OFFSET_Y = -7 -- Jarak di bawah NPC jika nyangkut
-local NO_DAMAGE_TIMEOUT = 30 -- Batas waktu (detik) jika tidak ada damage masuk
+-- Pengaturan Ketinggian Sumbu Y (-7 Stud dari posisi awal)
+local SAFE_OFFSET_Y = -7 
 
 -- Variabel Status
 local initialCFrame = nil
-local lastDamageTime = tick()
 
 --------------------------------------------------------------------------------
 -- SISTEM GUI TOGGLE (40x40 pixel & Draggable)
@@ -22,7 +18,6 @@ local lastDamageTime = tick()
 local function createToggleGUI()
     local coreGui = game:GetService("CoreGui")
     
-    -- Hapus GUI lama jika sudah ada
     if coreGui:FindFirstChild("TowerFarmGUI") then
         coreGui.TowerFarmGUI:Destroy()
     end
@@ -34,9 +29,9 @@ local function createToggleGUI()
 
     local toggleBtn = Instance.new("TextButton")
     toggleBtn.Name = "ToggleButton"
-    toggleBtn.Size = UDim2.new(0, 40, 0, 40) -- Ukuran 40x40 pixel
+    toggleBtn.Size = UDim2.new(0, 40, 0, 40)
     toggleBtn.Position = UDim2.new(0.05, 0, 0.4, 0)
-    toggleBtn.BackgroundColor3 = Color3.fromRGB(200, 40, 40) -- Warna Merah (OFF)
+    toggleBtn.BackgroundColor3 = Color3.fromRGB(200, 40, 40)
     toggleBtn.Text = "OFF"
     toggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
     toggleBtn.TextSize = 14
@@ -44,7 +39,6 @@ local function createToggleGUI()
     toggleBtn.Active = true
     toggleBtn.Parent = screenGui
 
-    -- Sudut Rounded & Border
     local uiCorner = Instance.new("UICorner")
     uiCorner.CornerRadius = UDim.new(0, 8)
     uiCorner.Parent = toggleBtn
@@ -54,7 +48,7 @@ local function createToggleGUI()
     uiStroke.Color = Color3.fromRGB(255, 255, 255)
     uiStroke.Parent = toggleBtn
 
-    -- LOGIKA DRAG (Bisa Digeser)
+    -- LOGIKA DRAG
     local dragging = false
     local dragInput, dragStart, startPos
 
@@ -97,14 +91,12 @@ local function createToggleGUI()
         _G.AutoFarmTower = not _G.AutoFarmTower
 
         if _G.AutoFarmTower then
-            toggleBtn.BackgroundColor3 = Color3.fromRGB(40, 200, 40) -- Hijau (ON)
+            toggleBtn.BackgroundColor3 = Color3.fromRGB(40, 200, 40)
             toggleBtn.Text = "ON"
-            lastDamageTime = tick()
         else
-            toggleBtn.BackgroundColor3 = Color3.fromRGB(200, 40, 40) -- Merah (OFF)
+            toggleBtn.BackgroundColor3 = Color3.fromRGB(200, 40, 40)
             toggleBtn.Text = "OFF"
 
-            -- Clean up saat dimatikan
             local character = LocalPlayer.Character
             if character then
                 local hrp = character:FindFirstChild("HumanoidRootPart")
@@ -128,7 +120,6 @@ local function createToggleGUI()
     end)
 end
 
--- Jalankan pembuatan GUI
 createToggleGUI()
 
 --------------------------------------------------------------------------------
@@ -148,24 +139,7 @@ RunService.Stepped:Connect(function()
 end)
 
 --------------------------------------------------------------------------------
--- PENDETEKSI REMOTE DAMAGE (DmgEffectURE)
---------------------------------------------------------------------------------
-task.spawn(function()
-    local remotes = ReplicatedStorage:WaitForChild("Remotes", 10)
-    if remotes then
-        local dmgRemote = remotes:WaitForChild("DmgEffectURE", 10)
-        if dmgRemote and dmgRemote:IsA("RemoteEvent") then
-            dmgRemote.OnClientEvent:Connect(function(...)
-                if _G.AutoFarmTower then
-                    lastDamageTime = tick()
-                end
-            end)
-        end
-    end
-end)
-
---------------------------------------------------------------------------------
--- LOGIKA UTAMA AUTO FARM (NO FALL TO VOID & NOCLIP)
+-- LOGIKA UTAMA AUTO FARM
 --------------------------------------------------------------------------------
 task.spawn(function()
     local EnemyFolder = workspace:FindFirstChild("EnemyNpc") or workspace:WaitForChild("EnemyNpc", 10)
@@ -189,6 +163,23 @@ task.spawn(function()
         return aliveList
     end
 
+    local function getClosestNPC(aliveNPCs, currentPos)
+        local closestNpc = nil
+        local shortestDistance = math.huge
+
+        for _, npc in ipairs(aliveNPCs) do
+            local npcHrp = npc:FindFirstChild("HumanoidRootPart") or npc.PrimaryPart
+            if npcHrp then
+                local distance = (Vector3.new(npcHrp.Position.X, 0, npcHrp.Position.Z) - Vector3.new(currentPos.X, 0, currentPos.Z)).Magnitude
+                if distance < shortestDistance then
+                    shortestDistance = distance
+                    closestNpc = npc
+                end
+            end
+        end
+        return closestNpc
+    end
+
     while task.wait(0.05) do
         if _G.AutoFarmTower then
             pcall(function()
@@ -199,7 +190,7 @@ task.spawn(function()
                 local humanoid = character:FindFirstChildOfClass("Humanoid")
                 local aliveNPCs = getAliveNPCs()
 
-                -- Penahan Gravitasi Sumbu Y (Dibuat Permanen Biar Gak Jatuh ke Void)
+                -- Penahan Gravitasi
                 local freezeVel = hrp:FindFirstChild("PositionLock")
                 if not freezeVel then
                     freezeVel = Instance.new("BodyVelocity")
@@ -210,6 +201,7 @@ task.spawn(function()
                 end
 
                 if #aliveNPCs > 0 then
+                    -- Simpan titik acuan lantai awal jika belum tersimpan
                     if not initialCFrame then
                         initialCFrame = hrp.CFrame
                     end
@@ -218,51 +210,22 @@ task.spawn(function()
                         humanoid.AutoRotate = false
                     end
 
-                    local targetCFrame = nil
+                    local closestNpc = getClosestNPC(aliveNPCs, hrp.Position)
 
-                    -- HANYA AKTIF JIKA SISA MUSUH <= 3
-                    if #aliveNPCs <= 3 then
-                        local timeSinceLastDamage = tick() - lastDamageTime
-
-                        if timeSinceLastDamage >= NO_DAMAGE_TIMEOUT then
-                            -- Cari musuh terdekat dari sisa musuh yang ada
-                            local closestNpc = nil
-                            local shortestDistance = math.huge
-
-                            for _, npc in ipairs(aliveNPCs) do
-                                local npcHrp = npc:FindFirstChild("HumanoidRootPart") or npc.PrimaryPart
-                                if npcHrp then
-                                    local distance = (npcHrp.Position - hrp.Position).Magnitude
-                                    if distance < shortestDistance then
-                                        shortestDistance = distance
-                                        closestNpc = npc
-                                    end
-                                end
-                            end
-
-                            if closestNpc then
-                                local targetHrp = closestNpc:FindFirstChild("HumanoidRootPart") or closestNpc.PrimaryPart
-                                if targetHrp then
-                                    targetCFrame = targetHrp.CFrame * CFrame.new(0, STUCK_OFFSET_Y, 0)
-                                end
-                            end
-                        else
-                            targetCFrame = initialCFrame * CFrame.new(0, SAFE_OFFSET_Y, 0)
+                    if closestNpc then
+                        local targetHrp = closestNpc:FindFirstChild("HumanoidRootPart") or closestNpc.PrimaryPart
+                        if targetHrp then
+                            -- Kunci Y di (lantai awal - 7 stud)
+                            local lockedY = initialCFrame.Y + SAFE_OFFSET_Y
+                            
+                            -- Pindah ke bawah NPC
+                            hrp.CFrame = CFrame.new(targetHrp.Position.X, lockedY, targetHrp.Position.Z)
+                            hrp.AssemblyLinearVelocity = Vector3.zero
+                            hrp.AssemblyAngularVelocity = Vector3.zero
                         end
-                    else
-                        -- Jika musuh masih ramai (> 3), reset timer & tetap di posisi aman
-                        lastDamageTime = tick()
-                        targetCFrame = initialCFrame * CFrame.new(0, SAFE_OFFSET_Y, 0)
-                    end
-
-                    -- Kunci Posisi Tegak Normal
-                    if targetCFrame then
-                        hrp.CFrame = targetCFrame
-                        hrp.AssemblyLinearVelocity = Vector3.zero
-                        hrp.AssemblyAngularVelocity = Vector3.zero
                     end
                 else
-                    -- Jika NPC habis, balikkan posisi ke permukaan tapi PENAHAN GRAVITASI TETAP AKTIF
+                    -- Jika NPC HABIS: Balik ke posisi awal di atas lantai
                     if initialCFrame then
                         hrp.CFrame = initialCFrame
                         initialCFrame = nil
@@ -271,10 +234,8 @@ task.spawn(function()
                     if humanoid then
                         humanoid.AutoRotate = true
                     end
-
-                    lastDamageTime = tick()
                 end
             end)
         end
     end
-end)
+end)          
